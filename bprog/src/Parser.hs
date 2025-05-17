@@ -2,6 +2,8 @@
 -- File: Parser.hs
 --------------------------------------
 
+{-# LANGUAGE RankNTypes #-} -- Forall keyword
+
 --------------------------------------
 --             Exports              --
 --------------------------------------
@@ -35,26 +37,44 @@ import Text.Read (
 
 -- | Process a list of tokens and return a new stack.
 processTokens :: [String] -> Stack -> Result
-processTokens [] []     = Error [] "Empty stack"
 processTokens [] [v]    = Success [v]
+processTokens [] []     = Error [] "Empty stack"
 processTokens [] stack  = Error stack "Stack has more than one value"
 
 -- | Process valid tokens.
 processTokens (token : tokens) stack = case token of
     
     -- Int operations.
-    "+"     ->  continueWith (applyIntOp (+)) stack tokens
-    "-"     ->  continueWith (applyIntOp (-)) stack tokens
-    "*"     ->  continueWith (applyIntOp (*)) stack tokens
-    "%"     ->  continueWith (applyIntOp mod) stack tokens
-    "div"   ->  continueWith (applyIntOp div) stack tokens
+    "+"       ->  continueWith (applyIntOp (+))             stack tokens
+    "-"       ->  continueWith (applyIntOp (-))             stack tokens
+    "*"       ->  continueWith (applyIntOp (*))             stack tokens
+    "%"       ->  continueWith (applyIntOp mod)             stack tokens
+    "div"     ->  continueWith (applyIntOp div)             stack tokens
 
-    -- Float operations.
-    "/"     ->  continueWith (applyFloatOp (/)) stack tokens
-    "pow"   ->  continueWith (applyFloatOp (**)) stack tokens
+    -- Float operations.        
+    "/"       ->  continueWith (applyFloatOp (/))           stack tokens
+    "pow"     ->  continueWith (applyFloatOp (**))          stack tokens
+
+    -- Bool operations.
+    "=="      ->  continueWith (applyOrdOp (==))            stack tokens
+    "!="      ->  continueWith (applyOrdOp (/=))            stack tokens
+    ">="      ->  continueWith (applyOrdOp (>=))            stack tokens
+    "<="      ->  continueWith (applyOrdOp (<=))            stack tokens
+    ">"       ->  continueWith (applyOrdOp (>))             stack tokens
+    "<"       ->  continueWith (applyOrdOp (<))             stack tokens
+
+    "or"      ->  continueWith  (applyBinaryBoolOp (||))    stack tokens
+    "and"     ->  continueWith  (applyBinaryBoolOp (&&))    stack tokens
+    "not"     ->  continueWith  (applyUnaryBoolOp not)      stack tokens
 
     -- Stack operations.
-    "pop"   ->  continueWith applyPop stack tokens
+    "pop"     ->  continueWith applyPop                     stack tokens
+    "drop"    ->  continueWith applyPop                     stack tokens
+    "dup"     ->  continueWith applyDup                     stack tokens
+    "swap"    ->  continueWith applySwap                    stack tokens
+    "clear"   ->  continueWith applyClear                   stack tokens
+    "print"   ->  continueWith applyPrint                   stack tokens
+    "combine" ->  continueWith applyCombine                 stack tokens
 
     -- Default case for literals or unknown tokens.
     _ -> parseLiteralOrError token stack tokens
@@ -64,15 +84,16 @@ processTokens (token : tokens) stack = case token of
 --------------------------------------
 
 -- | Apply operation on integer.
+--------------------------------------
 applyIntOp :: (Int -> Int -> Int) -> Stack -> Result
-applyIntOp _ s@[_] = Error s "Not enough operands"
-applyIntOp _ [] = Error [] "Empty stack"
 
 -- Standard int operation.
 applyIntOp operation ((VInt x) : (VInt y) : rest) = 
     Success (VInt (operation y x) : rest)
 
--- Invalid operand type.
+-- Error case.
+applyIntOp _ s@[_] = Error s "Not enough operands"
+applyIntOp _ [] = Error [] "Empty stack"
 applyIntOp _ s = Error s "Invalid operand type"
 
 --------------------------------------
@@ -80,15 +101,14 @@ applyIntOp _ s = Error s "Invalid operand type"
 --------------------------------------
 
 -- | Apply operation on float.
+--------------------------------------
 applyFloatOp :: (Float -> Float -> Float) -> Stack -> Result
-applyFloatOp _ s@[_] = Error s "Not enough operands"
-applyFloatOp _ [] = Error [] "Empty stack"
 
 -- Standard float operation.
 applyFloatOp operation ((VFloat x) : (VFloat y) : rest) = 
     Success (VFloat (operation y x) : rest)
 
--- Miexed int and float operation.
+-- Mixed int and float operation.
 applyFloatOp operation ((VInt x) : (VFloat y) : rest) =
     Success (VFloat (operation y (fromIntegral x)) : rest)
 
@@ -96,19 +116,120 @@ applyFloatOp operation ((VInt x) : (VFloat y) : rest) =
 applyFloatOp operation ((VFloat x) : (VInt y) : rest) =
     Success (VFloat (operation x (fromIntegral y)) : rest)
 
--- Invalid operand type.
+-- Error case.
+applyFloatOp _ s@[_] = Error s "Not enough operands"
+applyFloatOp _ [] = Error [] "Empty stack"
 applyFloatOp _ s = Error s "Invalid operand type"
+
+--------------------------------------
+--          Bool Operation          --
+--------------------------------------
+
+-- | Apply binary operation.
+--------------------------------------
+applyBinaryBoolOp :: (Bool -> Bool -> Bool) -> Stack -> Result
+
+-- Standard operation.
+applyBinaryBoolOp operation (VBool x : VBool y : rest) = 
+    Success (VBool (operation y x) : rest)
+
+-- Error case.
+applyBinaryBoolOp _ s = Error s "Invalid operand type"
+
+-- | Apply ordering operation.
+--------------------------------------
+applyOrdOp :: (forall a. Ord a => a -> a -> Bool) -> Stack -> Result
+
+-- Standard operation.
+applyOrdOp operation (VInt x : VInt y : rest)       = Success (VBool (operation y x) : rest)
+applyOrdOp operation (VFloat x : VFloat y : rest)   = Success (VBool (operation y x) : rest)
+applyOrdOp operation (VString x : VString y : rest) = Success (VBool (operation y x) : rest)
+
+-- Mixed float/int operation.
+applyOrdOp operation (VInt x : VFloat y : rest)     = Success (VBool (operation (fromIntegral x) y) : rest)
+applyOrdOp operation (VFloat x : VInt y : rest)     = Success (VBool (operation x (fromIntegral y)) : rest)
+
+-- Error case.
+applyOrdOp _ s = Error s "Invalid operand type"
+
+-- | Apply unary operation.
+--------------------------------------
+applyUnaryBoolOp :: (Bool -> Bool) -> Stack -> Result
+
+-- Standard unary operation.
+applyUnaryBoolOp operation (VBool x : rest) = 
+    Success (VBool (operation x) : rest)
+
+-- Error case.
+applyUnaryBoolOp _ s = Error s "Invalid operand type"
 
 --------------------------------------
 --         Stack Operation          --
 --------------------------------------
 
--- | Pop the top element from the stack.
+-- | Pop top element from stack.
+--------------------------------------
 applyPop :: Stack -> Result
 applyPop (_ : rest) = Success rest
 applyPop _ = Error [] "Empty stack"
 
--- | Apply a unary operation to the top element of the stack.
+-- | Duplicate top element of stack.
+--------------------------------------
+applyDup :: Stack -> Result
+applyDup (x:xs) = Success (x:x:xs)
+applyDup _ = Error [] "Empty stack"
+
+-- | Clear stack.
+--------------------------------------
+applyClear :: Stack -> Result
+applyClear _ = Success []
+
+-- | Swap top two elements of stack.
+--------------------------------------
+applySwap :: Stack -> Result
+applySwap (x:y:rest) = Success (y:x:rest)
+applySwap [] = Error [] "Empty stack"
+applySwap _ = Error [] "Not enough operands"
+
+-- | Print current stack.
+--------------------------------------
+applyPrint :: Stack -> Result
+applyPrint (x:xs) = Success (x:xs)
+applyPrint _ = Error [] "Empty stack"
+
+-- | Combine top two elements of stack.
+--------------------------------------
+applyCombine :: Stack -> Result
+
+-- Standard string operation.
+applyCombine (VString x : VString y : rest) =
+    Success (VString (y ++ " " ++ x) : rest)
+
+-- Standard int operation.
+applyCombine (VInt x : VInt y : rest) =
+    case readMaybe (show y ++ show x) :: Maybe Int of
+        Just combined -> Success (VInt combined : rest)
+        Nothing       -> Error (VInt x : VInt y : rest) "Invalid int combination"
+
+-- Standard float operation.
+applyCombine (VFloat x : VFloat y : rest) =
+    case readMaybe (show y ++ show x) :: Maybe Float of
+        Just combined -> Success (VFloat combined : rest)
+        Nothing       -> Error (VFloat x : VFloat y : rest) "Invalid float combination"
+
+-- Standard list operation.
+applyCombine (VList x : VList y : rest) =
+    Success (VList (y ++ x) : rest)
+
+-- Standard dict operation.
+applyCombine (VDict x : VDict y : rest) =
+    Success (VDict (y ++ x) : rest)
+
+-- Error case.
+applyCombine s = Error s "Unsupported types for combine"
+
+-- | Unary operation to top of stack.
+--------------------------------------
 continueWith :: (Stack -> Result) -> Stack -> [String] -> Result
 continueWith f stack tokens = case f stack of
     Success s -> processTokens tokens s
@@ -119,13 +240,101 @@ continueWith f stack tokens = case f stack of
 --------------------------------------
 
 -- | Process a literal or error.
+--------------------------------------
 parseLiteralOrError :: String -> Stack -> [String] -> Result
 parseLiteralOrError token stack tokens
-  | Just n <- readMaybe token :: Maybe Int    = processTokens tokens (push (VInt n) stack)
-  | Just f <- readMaybe token :: Maybe Float  = processTokens tokens (push (VFloat f) stack)
-  | Just b <- readMaybe token :: Maybe Bool   = processTokens tokens (push (VBool b) stack)
-  | Just s <- readMaybe token :: Maybe String = processTokens tokens (push (VString s) stack)
-  | otherwise                                 = Error stack ("Unknown token: " ++ token)
+
+    -- Parse list.
+    | "[" == token =
+        let (listTokens, rest) = extractUntilMatching "]" tokens
+        in case parseList listTokens of
+            Just val -> processTokens rest (push val stack)
+            Nothing  -> Error stack "Invalid list literal"
+
+    -- Parse dict.
+    | "{" == token =
+        let (dictTokens, rest) = extractUntilMatching "}" tokens
+        in case parseDict dictTokens of
+            Just val -> processTokens rest (push val stack)
+            Nothing  -> Error stack "Invalid dict literal"
+
+    -- Other literals.
+    | Just n <- readMaybe token :: Maybe Int    = processTokens tokens (push (VInt n) stack)
+    | Just f <- readMaybe token :: Maybe Float  = processTokens tokens (push (VFloat f) stack)
+    | Just b <- readMaybe token :: Maybe Bool   = processTokens tokens (push (VBool b) stack)
+    | Just s <- readMaybe token :: Maybe String = processTokens tokens (push (VString s) stack)
+
+    -- Eror case.
+    | otherwise = Error stack ("Unknown token: " ++ token)
+
+-- | Extract until matching token.
+--------------------------------------
+extractUntilMatching :: String -> [String] -> ([String], [String])
+extractUntilMatching closing = go (0 :: Int) []
+    where
+        go _ acc [] = (reverse acc, [])
+        go n acc (t:ts)
+            | t == closing && n == 0 = (reverse acc, ts)
+            | t == closing           = go (n-1) (t:acc) ts
+            | t == "["               = go (n+1) (t:acc) ts
+            | t == "{"               = go (n+1) (t:acc) ts
+            | otherwise              = go n     (t:acc) ts
+
+-- | Parse single value.
+--------------------------------------
+parseSingleValue :: String -> Maybe Value
+parseSingleValue s =
+    case readMaybe s :: Maybe Int of
+        Just n -> Just (VInt n)
+        Nothing -> case readMaybe s :: Maybe Float of
+            Just f -> Just (VFloat f)
+            Nothing -> case readMaybe s :: Maybe Bool of
+                Just b -> Just (VBool b)
+                Nothing -> case readMaybe s :: Maybe String of
+                    Just str -> Just (VString str)
+                    Nothing -> Nothing
+
+-- | Parse list.
+--------------------------------------
+parseList :: [String] -> Maybe Value
+parseList tokens =
+    case parseListValues tokens [] of
+        Just vs -> Just (VList vs)
+        Nothing -> Nothing
+    
+-- | Parse list values.
+--------------------------------------
+parseListValues :: [String] -> [Value] -> Maybe [Value]
+parseListValues [] acc = Just (reverse acc)
+parseListValues (t:ts) acc =
+    case readMaybe t :: Maybe Int of
+        Just n -> parseListValues ts (VInt n : acc)
+        Nothing -> case readMaybe t :: Maybe Float of
+            Just f -> parseListValues ts (VFloat f : acc)
+            Nothing -> case readMaybe t :: Maybe Bool of
+                Just b -> parseListValues ts (VBool b : acc)
+                Nothing -> case readMaybe t :: Maybe String of
+                    Just s -> parseListValues ts (VString s : acc)
+                    Nothing -> Nothing
+
+-- | Parse dictionary.
+--------------------------------------
+parseDict :: [String] -> Maybe Value
+parseDict tokens = case parseDictPairs tokens [] of
+    Just pairs -> Just (VDict pairs)
+    Nothing -> Nothing
+
+-- | Parse dictionary pairs.
+--------------------------------------
+parseDictPairs :: [String] -> [(String, Value)] -> Maybe [(String, Value)]
+parseDictPairs [] acc = Just (reverse acc)
+parseDictPairs (k:v:rest) acc =
+    case readMaybe k :: Maybe String of
+        Just key -> case parseSingleValue v of
+            Just val -> parseDictPairs rest ((key, val):acc)
+            Nothing  -> Nothing
+        Nothing -> Nothing
+parseDictPairs _ _ = Nothing
 
 --------------------------------------
 --         String Operation         --
