@@ -9,7 +9,8 @@
 --------------------------------------
 
 module Parser (
-    processTokens
+    processTokens,
+    processTokensLoose
 ) where
 
 --------------------------------------
@@ -35,19 +36,20 @@ import Text.Read (
 --          Process Tokens          --
 --------------------------------------
 
--- | Process a list of tokens and return a new stack.
+-- | Process tokens and return new stack.
+--------------------------------------
 processTokens :: [String] -> Stack -> Result
 processTokens [] [v]    = Success [v]
 processTokens [] []     = Error [] "Empty stack"
 processTokens [] stack  = Error stack "Stack has more than one value"
 
--- | Process valid tokens.
+-- Process valid tokens.
 processTokens (token : tokens) stack = case token of
     
     -- Int operations.
-    "+"       ->  continueWith (applyIntOp (+))             stack tokens
-    "-"       ->  continueWith (applyIntOp (-))             stack tokens
-    "*"       ->  continueWith (applyIntOp (*))             stack tokens
+    "+"       ->  continueWith applyAdd                     stack tokens
+    "-"       ->  continueWith applySub                     stack tokens
+    "*"       ->  continueWith applyMul                     stack tokens
     "%"       ->  continueWith (applyIntOp mod)             stack tokens
     "div"     ->  continueWith (applyIntOp div)             stack tokens
 
@@ -75,6 +77,61 @@ processTokens (token : tokens) stack = case token of
     "clear"   ->  continueWith applyClear                   stack tokens
     "print"   ->  continueWith applyPrint                   stack tokens
     "combine" ->  continueWith applyCombine                 stack tokens
+
+
+    "if"      ->  continueWith applyIf                      stack tokens
+
+    -- Execution control.
+    "exec"    ->  continueWith applyExec                    stack tokens
+
+    -- Default case for literals or unknown tokens.
+    _ -> parseLiteralOrError token stack tokens
+
+-- | Process tokens and return new stack (Looser version for scripts).
+--------------------------------------
+processTokensLoose :: [String] -> Stack -> Result
+processTokensLoose [] stack = Success stack
+
+-- Process valid tokens.
+processTokensLoose (token : tokens) stack = case token of
+
+    -- Int operations.
+    "+"       ->  continueWith applyAdd                     stack tokens
+    "-"       ->  continueWith applySub                     stack tokens
+    "*"       ->  continueWith applyMul                     stack tokens
+    "%"       ->  continueWith (applyIntOp mod)             stack tokens
+    "div"     ->  continueWith (applyIntOp div)             stack tokens
+
+    -- Float operations.        
+    "/"       ->  continueWith (applyFloatOp (/))           stack tokens
+    "pow"     ->  continueWith (applyFloatOp (**))          stack tokens
+
+    -- Bool operations.
+    "=="      ->  continueWith (applyOrdOp (==))            stack tokens
+    "!="      ->  continueWith (applyOrdOp (/=))            stack tokens
+    ">="      ->  continueWith (applyOrdOp (>=))            stack tokens
+    "<="      ->  continueWith (applyOrdOp (<=))            stack tokens
+    ">"       ->  continueWith (applyOrdOp (>))             stack tokens
+    "<"       ->  continueWith (applyOrdOp (<))             stack tokens
+
+    "or"      ->  continueWith  (applyBinaryBoolOp (||))    stack tokens
+    "and"     ->  continueWith  (applyBinaryBoolOp (&&))    stack tokens
+    "not"     ->  continueWith  (applyUnaryBoolOp not)      stack tokens
+
+    -- Stack operations.
+    "pop"     ->  continueWith applyPop                     stack tokens
+    "drop"    ->  continueWith applyPop                     stack tokens
+    "dup"     ->  continueWith applyDup                     stack tokens
+    "swap"    ->  continueWith applySwap                    stack tokens
+    "clear"   ->  continueWith applyClear                   stack tokens
+    "print"   ->  continueWith applyPrint                   stack tokens
+    "combine" ->  continueWith applyCombine                 stack tokens
+
+    -- Conditionals.
+    "if"      ->  continueWith applyIf                      stack tokens
+
+    -- Execution control.
+    "exec"    ->  continueWith applyExec                    stack tokens
 
     -- Default case for literals or unknown tokens.
     _ -> parseLiteralOrError token stack tokens
@@ -120,6 +177,37 @@ applyFloatOp operation ((VFloat x) : (VInt y) : rest) =
 applyFloatOp _ s@[_] = Error s "Not enough operands"
 applyFloatOp _ [] = Error [] "Empty stack"
 applyFloatOp _ s = Error s "Invalid operand type"
+
+--------------------------------------
+--         Mixed Operation          --
+--------------------------------------
+
+-- | Apply + for int and float types.
+--------------------------------------
+applyAdd :: Stack -> Result
+applyAdd (VInt x : VInt y : rest) = Success (VInt (y + x) : rest)
+applyAdd (VFloat x : VFloat y : rest) = Success (VFloat (y + x) : rest)
+applyAdd (VInt x : VFloat y : rest) = Success (VFloat (y + fromIntegral x) : rest)
+applyAdd (VFloat x : VInt y : rest) = Success (VFloat (fromIntegral y + x) : rest)
+applyAdd s = Error s "Invalid operand type for +"
+
+-- | Apply - for int and float types.
+--------------------------------------
+applySub :: Stack -> Result
+applySub (VInt x : VInt y : rest) = Success (VInt (y - x) : rest)
+applySub (VFloat x : VFloat y : rest) = Success (VFloat (y - x) : rest)
+applySub (VInt x : VFloat y : rest) = Success (VFloat (y - fromIntegral x) : rest)
+applySub (VFloat x : VInt y : rest) = Success (VFloat (fromIntegral y - x) : rest)
+applySub s = Error s "Invalid operand type for -"
+
+-- | Apply * for int and float types.
+--------------------------------------
+applyMul :: Stack -> Result
+applyMul (VInt x : VInt y : rest) = Success (VInt (y * x) : rest)
+applyMul (VFloat x : VFloat y : rest) = Success (VFloat (y * x) : rest)
+applyMul (VInt x : VFloat y : rest) = Success (VFloat (y * fromIntegral x) : rest)
+applyMul (VFloat x : VInt y : rest) = Success (VFloat (fromIntegral y * x) : rest)
+applyMul s = Error s "Invalid operand type for *"
 
 --------------------------------------
 --          Bool Operation          --
@@ -194,7 +282,7 @@ applySwap _ = Error [] "Not enough operands"
 -- | Print current stack.
 --------------------------------------
 applyPrint :: Stack -> Result
-applyPrint (x:xs) = Success (x:xs)
+applyPrint (x:xs) = Info xs (show x)
 applyPrint _ = Error [] "Empty stack"
 
 -- | Combine top two elements of stack.
@@ -213,9 +301,7 @@ applyCombine (VInt x : VInt y : rest) =
 
 -- Standard float operation.
 applyCombine (VFloat x : VFloat y : rest) =
-    case readMaybe (show y ++ show x) :: Maybe Float of
-        Just combined -> Success (VFloat combined : rest)
-        Nothing       -> Error (VFloat x : VFloat y : rest) "Invalid float combination"
+    Success (VFloat (y + x) : rest)
 
 -- Standard list operation.
 applyCombine (VList x : VList y : rest) =
@@ -260,7 +346,9 @@ parseLiteralOrError token stack tokens
     | Just n <- readMaybe token :: Maybe Int    = processTokens tokens (push (VInt n) stack)
     | Just f <- readMaybe token :: Maybe Float  = processTokens tokens (push (VFloat f) stack)
     | Just b <- readMaybe token :: Maybe Bool   = processTokens tokens (push (VBool b) stack)
-    | Just s <- readMaybe token :: Maybe String = processTokens tokens (push (VString s) stack)
+
+    -- String
+    | isQuoted token = processTokens tokens (push (VString (stripQuotes token)) stack)
 
     -- Eror case.
     | otherwise = Error stack ("Unknown token: " ++ token)
@@ -328,3 +416,36 @@ parseListValues (t:ts) acc =
 --------------------------------------
 --         String Operation         --
 --------------------------------------
+
+-- | Check if a string is quoted.
+--------------------------------------
+isQuoted :: String -> Bool
+isQuoted s = length s >= 2 && head s == '"' && last s == '"'
+
+-- | Strip quotes from a string.
+--------------------------------------
+stripQuotes :: String -> String
+stripQuotes = init . tail
+
+--------------------------------------
+--             Execution            --
+--------------------------------------
+
+-- | Apply execution control.
+--------------------------------------
+applyExec :: Stack -> Result
+applyExec (VQuote q : rest) = processTokensLoose q rest
+applyExec (x : xs) = Error (x : xs) "Expected a quotation on top of the stack"
+applyExec [] = Error [] "Empty stack"
+
+--------------------------------------
+--            Conditions            --
+--------------------------------------
+
+-- | Apply if condition.
+--------------------------------------
+applyIf :: Stack -> Result
+applyIf (VQuote elseQ : VQuote thenQ : VBool cond : rest) =
+    if cond then processTokensLoose thenQ rest
+            else processTokensLoose elseQ rest
+applyIf s = Error s "Invalid types for 'if'"

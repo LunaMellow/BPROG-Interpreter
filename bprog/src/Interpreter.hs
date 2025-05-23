@@ -21,7 +21,9 @@ import Types (
     )
 
 import Runtime (
-    handleResult
+    handleResult,
+    mergeQuotedStrings,
+    stripComments
     )
 
 import Parser (
@@ -49,7 +51,7 @@ repl stack = do
 
     -- Read tokens from user input.
     line <- getLine
-    let tokens = words line
+    let tokens = mergeQuotedStrings (words (stripComments line))
 
     -- Process the tokens and get the result
     handleResult repl (processTokens tokens stack)

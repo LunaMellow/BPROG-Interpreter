@@ -1,0 +1,59 @@
+-- Arithmetic: Int and Float
+10 5 + print clear
+20 3 - print clear
+6 7 * print clear
+20 3 div print clear
+20 3 % print clear
+
+3.5 1.5 + print clear
+5.0 2.0 / print clear
+2.0 3.0 pow print clear
+
+-- Boolean comparisons
+5 5 == print clear
+5 4 != print clear
+3 3 <= print clear
+4 3 < print clear
+5 2 > print clear
+3 3 >= print clear
+
+-- Boolean logic
+True False and print clear
+True False or print clear
+True not print clear
+
+-- Stack operations
+"Stacking" dup print clear
+swap print clear
+clear
+
+-- combine: strings
+"Hello" "World" combine print clear
+
+-- combine: integers
+12 34 combine print clear
+
+-- combine: floats
+1.2 3.4 combine print clear
+
+-- combine: lists
+[ 1 2 ] [ 3 4 ] combine print clear
+
+-- Quotation and exec
+{ "This was quoted and executed!" print clear } exec clear
+
+-- Lists
+[ 10 20 30 ] print clear
+clear
+
+-- Quoted logic branching
+60 dup 60 == 
+{ "Matched 60!" print clear }
+{ "Not 60!" print clear }
+if clear
+
+-- List of mixed types
+[ 1 "hello" True 3.14 ] print clear
+
+-- Final check
+"Done!" print clear
