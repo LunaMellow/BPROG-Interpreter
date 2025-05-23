@@ -62,19 +62,19 @@ prettyPrint vs = show vs
 -- | Merge quoted strings.
 --------------------------------------
 mergeQuotedStrings :: [String] -> [String]
-mergeQuotedStrings = go False []
+mergeQuotedStrings = reverse . go False [] []
     where
-        go _ acc [] = reverse acc
-        go False acc (t:ts)
-            | head t == '"' && last t /= '"' = mergeUntilQuote t ts acc
-            | otherwise = go False (t : acc) ts
-        go True acc ts = reverse acc ++ ts
+        go _ acc result [] = if null acc then result else unwords (reverse acc) : result
+        go False _ result (t:ts)
+            | isStartQuote t && not (isEndQuote t) = go True [t] result ts
+            | otherwise = go False [] (t : result) ts
+        go True acc result (t:ts)
+            | isEndQuote t = go False [] (unwords (reverse (t:acc)) : result) ts
+            | otherwise    = go True (t:acc) result ts
 
-        mergeUntilQuote :: String -> [String] -> [String] -> [String]
-        mergeUntilQuote current [] acc = reverse (current : acc)
-        mergeUntilQuote current (t:ts) acc
-            | last t == '"' = go False ((current ++ " " ++ t) : acc) ts
-            | otherwise     = mergeUntilQuote (current ++ " " ++ t) ts acc
+        isStartQuote s = not (null s) && head s == '"'
+        isEndQuote s   = not (null s) && last s == '"'
+
 
 -- | Strip comments from a line.
 --------------------------------------

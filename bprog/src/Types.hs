@@ -18,9 +18,17 @@ module Types
     asBool, 
     asFloat, 
     asList, 
-    asDict, 
-    asFunction
+    asDict
 ) where
+
+--------------------------------------
+--             Imports              --
+--------------------------------------
+
+-- External.
+import Data.List (
+    intersperse
+    )
 
 --------------------------------------
 --              VALUE               --
@@ -28,14 +36,13 @@ module Types
 
 -- | The Value datatype represents values that can be pushed to stack.
 data Value = 
-    VInt            Int
+    VInt            Integer
     | VString       String
     | VBool         Bool
     | VFloat        Float
     | VQuote        [String]
     | VList         [Value]
     | VDict         [(String, Value)]
-    | VFunction     ([Value] -> Value)
 
 -- | The Show instance for the Value datatype.
 instance Show Value where
@@ -43,24 +50,23 @@ instance Show Value where
     show (VString s)    = show s
     show (VBool b)      = show b
     show (VFloat f)     = show f
-    show (VQuote q)     = show q
-    show (VList l)      = show l
+    show (VQuote q)     = "{ " ++ unwords q ++ " }"
+    show (VList l)      = "["  ++ listShow l ++ "]"
     show (VDict d)      = show d
-    show (VFunction _)  = "<fn>"
 
 -- | The equality instance for the Value datatype.
 instance Eq Value where
     (VInt a)    == (VInt b)     = a == b
-    (VString a) == (VString b)  = a == b
-    (VBool a)   == (VBool b)    = a == b
     (VFloat a)  == (VFloat b)   = a == b
+    (VBool a)   == (VBool b)    = a == b
+    (VString a) == (VString b)  = a == b
     (VQuote a)  == (VQuote b)   = a == b
     (VList a)   == (VList b)    = a == b
     (VDict a)   == (VDict b)    = a == b
-    _ == _ = False
+    _           == _            = False
 
 -- | Extract a int from the Value datatype.
-asInt :: Value -> Maybe Int
+asInt :: Value -> Maybe Integer
 asInt (VInt i) = Just i
 asInt _ = Nothing
 
@@ -89,11 +95,6 @@ asDict :: Value -> Maybe [(String, Value)]
 asDict (VDict d) = Just d
 asDict _ = Nothing
 
--- | Extract a function from the Value datatype.
-asFunction :: Value -> Maybe ([Value] -> Value)
-asFunction (VFunction f) = Just f
-asFunction _ = Nothing
-
 --------------------------------------
 --              STACK               --
 --------------------------------------
@@ -120,3 +121,7 @@ data Result =
     | Error Stack String
     | Warning Stack String
     | Info Stack String
+
+-- |  Show helper for lists.
+listShow :: [Value] -> String
+listShow = concat . intersperse "," . map show

@@ -4,6 +4,7 @@ module Main (main) where
 
 import Test.Hspec
 import Parser (processTokens)
+import Runtime (mergeQuotedStrings)
 import Types (Result(..))
 
 -- | Convert a Result to a String representation for comparison.
@@ -18,7 +19,7 @@ resultToString (Info _ msg) = Right msg
 t :: String -> String -> Spec
 t input expected =
     it input $
-        case resultToString (processTokens (words input) []) of
+        case resultToString (processTokens (mergeQuotedStrings (words input)) []) of
             Right actual -> actual `shouldBe` expected
             Left err     -> expectationFailure err
 
@@ -37,7 +38,7 @@ main = hspec $ describe "Official bprog tests" $ do
     t "True" "True"
     t "[ [ ] [ ] ]" "[[],[]]"
     t "[ False [ ] True [ 1 2 ] ]" "[False,[],True,[1,2]]"
-    t "\" [ so { not if ] and } \"" "\"[ so { not if ] and }\""
+    t "\"[ so { not if ] and }\"" "\"[ so { not if ] and }\""
 
     -- Quotation literals
     t "{ 20 10 + }" "{ 20 10 + }"
@@ -70,7 +71,7 @@ main = hspec $ describe "Official bprog tests" $ do
     t "10 10.0 ==" "True"
     t "True True ==" "True"
     t "True 40 40 == ==" "True"
-    t "\" abba \" \" abba \" ==" "True"
+    t "\"abba\" \"abba\" ==" "True"
     t "[ ] [ ] ==" "True"
     t "[ 1 2 ] [ 1 2 ] ==" "True"
     t "[ [ ] ] [ [ ] ] ==" "True"

@@ -58,7 +58,7 @@ processTokens (token : tokens) stack = case token of
     "pow"     ->  continueWith (applyFloatOp (**))          stack tokens
 
     -- Bool operations.
-    "=="      ->  continueWith (applyOrdOp (==))            stack tokens
+    "=="      ->  continueWith applyEqOp                    stack tokens
     "!="      ->  continueWith (applyOrdOp (/=))            stack tokens
     ">="      ->  continueWith (applyOrdOp (>=))            stack tokens
     "<="      ->  continueWith (applyOrdOp (<=))            stack tokens
@@ -107,7 +107,7 @@ processTokensLoose (token : tokens) stack = case token of
     "pow"     ->  continueWith (applyFloatOp (**))          stack tokens
 
     -- Bool operations.
-    "=="      ->  continueWith (applyOrdOp (==))            stack tokens
+    "=="      ->  continueWith applyEqOp                    stack tokens
     "!="      ->  continueWith (applyOrdOp (/=))            stack tokens
     ">="      ->  continueWith (applyOrdOp (>=))            stack tokens
     "<="      ->  continueWith (applyOrdOp (<=))            stack tokens
@@ -142,11 +142,21 @@ processTokensLoose (token : tokens) stack = case token of
 
 -- | Apply operation on integer.
 --------------------------------------
-applyIntOp :: (Int -> Int -> Int) -> Stack -> Result
+applyIntOp :: (Integer -> Integer -> Integer) -> Stack -> Result
 
 -- Standard int operation.
 applyIntOp operation ((VInt x) : (VInt y) : rest) = 
     Success (VInt (operation y x) : rest)
+
+-- Mixed int and float operation.
+applyIntOp operation ((VInt x) : (VFloat y) : rest) =
+    Success (VInt (truncate y `operation` x) : rest)
+applyIntOp operation ((VFloat x) : (VInt y) : rest) =
+    Success (VInt (y `operation` truncate x) : rest)
+
+-- Float to int operation.
+applyIntOp operation ((VFloat x) : (VFloat y) : rest) =
+    Success (VInt (truncate y `operation` truncate x) : rest)
 
 -- Error case.
 applyIntOp _ s@[_] = Error s "Not enough operands"
@@ -172,6 +182,10 @@ applyFloatOp operation ((VInt x) : (VFloat y) : rest) =
 -- Mixed float and int operation.
 applyFloatOp operation ((VFloat x) : (VInt y) : rest) =
     Success (VFloat (operation x (fromIntegral y)) : rest)
+
+-- Int to float operation.
+applyFloatOp operation (VInt x : VInt y : rest) =
+    Success (VFloat (fromIntegral y `operation` fromIntegral x) : rest)
 
 -- Error case.
 applyFloatOp _ s@[_] = Error s "Not enough operands"
@@ -229,13 +243,18 @@ applyBinaryBoolOp _ s = Error s "Invalid operand type"
 applyOrdOp :: (forall a. Ord a => a -> a -> Bool) -> Stack -> Result
 
 -- Standard operation.
-applyOrdOp operation (VInt x : VInt y : rest)       = Success (VBool (operation y x) : rest)
-applyOrdOp operation (VFloat x : VFloat y : rest)   = Success (VBool (operation y x) : rest)
-applyOrdOp operation (VString x : VString y : rest) = Success (VBool (operation y x) : rest)
+applyOrdOp operation (VInt x : VInt y : rest) = 
+    Success (VBool (operation y x) : rest)
+applyOrdOp operation (VFloat x : VFloat y : rest) = 
+    Success (VBool (operation y x) : rest)
+applyOrdOp operation (VString x : VString y : rest) = 
+    Success (VBool (operation y x) : rest)
 
 -- Mixed float/int operation.
-applyOrdOp operation (VInt x : VFloat y : rest)     = Success (VBool (operation (fromIntegral x) y) : rest)
-applyOrdOp operation (VFloat x : VInt y : rest)     = Success (VBool (operation x (fromIntegral y)) : rest)
+applyOrdOp operation (VInt x : VFloat y : rest) =
+    Success (VBool (y `operation` fromIntegral x) : rest)
+applyOrdOp operation (VFloat x : VInt y : rest) =
+    Success (VBool (fromIntegral y `operation` x) : rest)
 
 -- Error case.
 applyOrdOp _ s = Error s "Invalid operand type"
@@ -250,6 +269,36 @@ applyUnaryBoolOp operation (VBool x : rest) =
 
 -- Error case.
 applyUnaryBoolOp _ s = Error s "Invalid operand type"
+
+-- | Apply equality operation.
+--------------------------------------
+applyEqOp :: Stack -> Result
+
+-- Mixed int/float operation.
+applyEqOp (VInt x : VFloat y : rest) =
+    Success (VBool (fromIntegral x == y) : rest)
+applyEqOp (VFloat x : VInt y : rest) =
+    Success (VBool (x == fromIntegral y) : rest)
+
+-- Standard equality operation.
+applyEqOp (x : y : rest)
+    | sameType x y = Success (VBool (x == y) : rest)
+    | otherwise    = Error (x : y : rest) "Invalid operand type"
+
+-- Error case.
+applyEqOp s = Error s "Invalid operand type"
+
+-- | Ensure only equal types can be compared.
+--------------------------------------
+sameType :: Value -> Value -> Bool
+sameType (VInt _)     (VInt _)     = True
+sameType (VFloat _)   (VFloat _)   = True
+sameType (VString _)  (VString _)  = True
+sameType (VBool _)    (VBool _)    = True
+sameType (VList xs)   (VList ys)   = length xs == length ys && and (zipWith sameType xs ys)
+sameType (VQuote _)   (VQuote _)   = True
+sameType (VDict _)    (VDict _)    = True
+sameType _            _            = False
 
 --------------------------------------
 --         Stack Operation          --
@@ -295,7 +344,7 @@ applyCombine (VString x : VString y : rest) =
 
 -- Standard int operation.
 applyCombine (VInt x : VInt y : rest) =
-    case readMaybe (show y ++ show x) :: Maybe Int of
+    case readMaybe (show y ++ show x) :: Maybe Integer of
         Just combined -> Success (VInt combined : rest)
         Nothing       -> Error (VInt x : VInt y : rest) "Invalid int combination"
 
@@ -340,10 +389,10 @@ parseLiteralOrError token stack tokens
     -- Parse quotation.
     | "{" == token =
         let (quoteTokens, rest) = extractUntilMatching "}" tokens
-        in processTokens rest (push (VQuote quoteTokens) stack)
+        in Success (VQuote quoteTokens : stack) `thenContinue` rest
 
     -- Other literals.
-    | Just n <- readMaybe token :: Maybe Int    = processTokens tokens (push (VInt n) stack)
+    | Just n <- readMaybe token :: Maybe Integer    = processTokens tokens (push (VInt n) stack)
     | Just f <- readMaybe token :: Maybe Float  = processTokens tokens (push (VFloat f) stack)
     | Just b <- readMaybe token :: Maybe Bool   = processTokens tokens (push (VBool b) stack)
 
@@ -353,10 +402,16 @@ parseLiteralOrError token stack tokens
     -- Eror case.
     | otherwise = Error stack ("Unknown token: " ++ token)
 
+-- | Continue with result.
+--------------------------------------
+thenContinue :: Result -> [String] -> Result
+thenContinue (Success s) tokens = processTokens tokens s
+thenContinue other _ = other
+
 -- | Extract until matching token.
 --------------------------------------
 extractUntilMatching :: String -> [String] -> ([String], [String])
-extractUntilMatching closing = go (0 :: Int) []
+extractUntilMatching closing = go (0 :: Integer) []
     where
         opening = matchOpening closing
         go _ acc [] = (reverse acc, [])
@@ -378,7 +433,7 @@ matchOpening _   = error "Unsupported bracket type"
 --------------------------------------
 parseSingleValue :: String -> Maybe Value
 parseSingleValue s =
-    case readMaybe s :: Maybe Int of
+    case readMaybe s :: Maybe Integer of
         Just n -> Just (VInt n)
         Nothing -> case readMaybe s :: Maybe Float of
             Just f -> Just (VFloat f)
