@@ -32,6 +32,7 @@ data Value =
     | VString       String
     | VBool         Bool
     | VFloat        Float
+    | VQuote        [String]
     | VList         [Value]
     | VDict         [(String, Value)]
     | VFunction     ([Value] -> Value)
@@ -42,6 +43,7 @@ instance Show Value where
     show (VString s)    = show s
     show (VBool b)      = show b
     show (VFloat f)     = show f
+    show (VQuote q)     = show q
     show (VList l)      = show l
     show (VDict d)      = show d
     show (VFunction _)  = "<fn>"
@@ -52,6 +54,7 @@ instance Eq Value where
     (VString a) == (VString b)  = a == b
     (VBool a)   == (VBool b)    = a == b
     (VFloat a)  == (VFloat b)   = a == b
+    (VQuote a)  == (VQuote b)   = a == b
     (VList a)   == (VList b)    = a == b
     (VDict a)   == (VDict b)    = a == b
     _ == _ = False

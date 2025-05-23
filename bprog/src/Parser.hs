@@ -251,12 +251,10 @@ parseLiteralOrError token stack tokens
             Just val -> processTokens rest (push val stack)
             Nothing  -> Error stack "Invalid list literal"
 
-    -- Parse dict.
+    -- Parse quotation.
     | "{" == token =
-        let (dictTokens, rest) = extractUntilMatching "}" tokens
-        in case parseDict dictTokens of
-            Just val -> processTokens rest (push val stack)
-            Nothing  -> Error stack "Invalid dict literal"
+        let (quoteTokens, rest) = extractUntilMatching "}" tokens
+        in processTokens rest (push (VQuote quoteTokens) stack)
 
     -- Other literals.
     | Just n <- readMaybe token :: Maybe Int    = processTokens tokens (push (VInt n) stack)
@@ -272,13 +270,21 @@ parseLiteralOrError token stack tokens
 extractUntilMatching :: String -> [String] -> ([String], [String])
 extractUntilMatching closing = go (0 :: Int) []
     where
+        opening = matchOpening closing
         go _ acc [] = (reverse acc, [])
         go n acc (t:ts)
             | t == closing && n == 0 = (reverse acc, ts)
-            | t == closing           = go (n-1) (t:acc) ts
-            | t == "["               = go (n+1) (t:acc) ts
-            | t == "{"               = go (n+1) (t:acc) ts
-            | otherwise              = go n     (t:acc) ts
+            | t == closing           = go (n - 1) (t : acc) ts
+            | t == opening           = go (n + 1) (t : acc) ts
+            | otherwise              = go n (t : acc) ts
+
+-- | Match opening token.
+--------------------------------------
+matchOpening :: String -> String
+matchOpening "]" = "["
+matchOpening "}" = "{"
+matchOpening ")" = "("
+matchOpening _   = error "Unsupported bracket type"
 
 -- | Parse single value.
 --------------------------------------
@@ -306,35 +312,18 @@ parseList tokens =
 --------------------------------------
 parseListValues :: [String] -> [Value] -> Maybe [Value]
 parseListValues [] acc = Just (reverse acc)
+parseListValues ("[" : xs) acc =
+    let (innerTokens, rest) = extractUntilMatching "]" xs
+    in case parseList innerTokens of
+        Just (VList inner) -> parseListValues rest (VList inner : acc)
+        _ -> Nothing
+parseListValues ("{" : xs) acc =
+    let (quoteTokens, rest) = extractUntilMatching "}" xs
+    in parseListValues rest (VQuote quoteTokens : acc)
 parseListValues (t:ts) acc =
-    case readMaybe t :: Maybe Int of
-        Just n -> parseListValues ts (VInt n : acc)
-        Nothing -> case readMaybe t :: Maybe Float of
-            Just f -> parseListValues ts (VFloat f : acc)
-            Nothing -> case readMaybe t :: Maybe Bool of
-                Just b -> parseListValues ts (VBool b : acc)
-                Nothing -> case readMaybe t :: Maybe String of
-                    Just s -> parseListValues ts (VString s : acc)
-                    Nothing -> Nothing
-
--- | Parse dictionary.
---------------------------------------
-parseDict :: [String] -> Maybe Value
-parseDict tokens = case parseDictPairs tokens [] of
-    Just pairs -> Just (VDict pairs)
-    Nothing -> Nothing
-
--- | Parse dictionary pairs.
---------------------------------------
-parseDictPairs :: [String] -> [(String, Value)] -> Maybe [(String, Value)]
-parseDictPairs [] acc = Just (reverse acc)
-parseDictPairs (k:v:rest) acc =
-    case readMaybe k :: Maybe String of
-        Just key -> case parseSingleValue v of
-            Just val -> parseDictPairs rest ((key, val):acc)
-            Nothing  -> Nothing
+    case parseSingleValue t of
+        Just v  -> parseListValues ts (v : acc)
         Nothing -> Nothing
-parseDictPairs _ _ = Nothing
 
 --------------------------------------
 --         String Operation         --
